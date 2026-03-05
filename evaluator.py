@@ -85,13 +85,12 @@ def match_predictions_to_gt(pred_boxes, gt_boxes, iou_thresh=0.5):
     return matches
 
 def draw_detections(img, boxes):
-    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    # img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
     for box in boxes:
         x1, y1, x2, y2, cls = box
-        cv2.rectangle(img_cv, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color=(0, 255, 0), thickness=2)
 
-    return img_cv
-
+    return img
 
 
 def main():
@@ -164,7 +163,10 @@ def main():
         # Optional image saving
         # -----------------------------
         if args.show:
-            result, _ = draw_detections(img, pred_boxes)
+            img_res = draw_detections(img, pred_boxes)
+            cv2.imshow("Prediction", img_res)
+            cv2.waitKey(0)
+
         #     out_path = os.path.join(args.output_dir, img_name)
         #     cv2.imwrite(out_path, result)
 
