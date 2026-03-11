@@ -16,53 +16,43 @@ python evaluator.py --model-name EfficientDet --path-pred /home/esteban-dreau-da
 
 def xywnh2xyxyc_gt(label_path, img_w, img_h):
     """
-    Retourne une liste de GT boxes au format [x1, y1, x2, y2, class_id]
+    Return a list of GT boxes in the format [x1, y1, x2, y2, class_id]
     """
     boxes = []
-
     if not os.path.exists(label_path):
         # print(f"No GT in {label_path}")
         return boxes
-
     with open(label_path, "r") as f:
         for line in f:
             cls, xc, yc, w, h = map(float, line.strip().split())
-
             x1 = (xc - w / 2) * img_w
             y1 = (yc - h / 2) * img_h
             x2 = (xc + w / 2) * img_w
             y2 = (yc + h / 2) * img_h
-
             boxes.append([x1, y1, x2, y2, int(cls)])
-
     return boxes
 
 def xywnh2xyxyc_pred(label_path, img_w, img_h):
     """
-    Retourne une liste de GT boxes au format [x1, y1, x2, y2, class_id, conf]
+    Return a list of predicted boxes in the format [x1, y1, x2, y2, class_id, conf]
     """
     boxes = []
-
     if not os.path.exists(label_path):
         # print(f"No detection in {label_path}")
         return boxes
-
     with open(label_path, "r") as f:
         for line in f:
             cls, xc, yc, w, h, conf = map(float, line.strip().split())
-
             x1 = (xc - w / 2) * img_w
             y1 = (yc - h / 2) * img_h
             x2 = (xc + w / 2) * img_w
             y2 = (yc + h / 2) * img_h
-
             boxes.append([x1, y1, x2, y2, int(cls), conf])
-
     return boxes
 
 def compute_iou(boxA, boxB, img):
     """
-    boxA, boxB : [x, y, w, h]
+    boxA, boxB : [x1, y1, x2, y2]
     """
     xA = max(boxA[0], boxB[0])
     yA = max(boxA[1], boxB[1])
@@ -88,7 +78,6 @@ def draw_detections(img, boxes):
     for box in boxes:
         x1, y1, x2, y2, cls, conf = box
         cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color=(0, 255, 0), thickness=2)
-
     return img
 
 def print_pr(tp, fp, gt, total_pred, all_ious, iou):
@@ -132,10 +121,10 @@ def ap(recalls, precisions):
     Compute Average Precision (AP) using the trapezoidal rule.
     This function assumes that recalls and precisions are sorted by recall in ascending order.
     """
-    mrec = np.concatenate(([0.0], recalls))
-    mpre = np.concatenate(([precisions[0]], precisions))
-    widths = np.diff(mrec)
-    ap = np.sum(widths * mpre[1:])
+    mrec = np.concatenate(([0.0], recalls))  # To start at 0 
+    mpre = np.concatenate(([precisions[0]], precisions)) # For the first rectangle to be the same size as the first value of precision
+    widths = np.diff(mrec) # Compute the widths of each rectangle (between every step of precision)
+    ap = np.sum(widths * mpre[1:]) # Add every rectangles area to compute AP 
     
     return ap
 
@@ -158,10 +147,8 @@ def compute_mAP(results, all_aps, total_gt, classes):
                 indices = np.argsort(r) # sort by recall to ensure the curve is well formed (increasing recall)
                 r = r[indices]
                 p = p[indices]
-
-                # 3. Calcul de l'AP pour cet IoU précis
-
                 current_ap = ap(r, p)
+
             all_aps[iou][cls].append(current_ap)
             plt.plot(r, p, label=f'Cls {cls}, AP {current_ap:.4f}')
         plt.xlabel('Recall (Rappel)')
@@ -224,10 +211,10 @@ def main():
         gt_boxes = xywnh2xyxyc_gt(gt_path, img_w, img_h)
 
         for gt in gt_boxes:
-            gt_cls[gt[4]] += 1
-            total_gt +=1
+            gt_cls[gt[4]] += 1 # count the number of GT for each class to compute AP later
+            total_gt +=1 # count the total number of GT to compute recall later
 
-        matched_gt = {iou : set() for iou in args.iou_tab}
+        matched_gt = {iou : set() for iou in args.iou_tab} # to keep track of which GT boxes have been matched for each IoU threshold, to avoid multiple matches with the same GT box
 
         # -----------------------------
         # Matching predictions ↔ GT
@@ -241,10 +228,7 @@ def main():
             for i, gt in enumerate(gt_boxes):
                 if pred[4] != gt[4]:  # class mismatch
                     continue
-
                 iou = compute_iou(pred[:4], gt[:4], img)
-                
-
                 if iou > best_iou:
                     best_iou = iou
                     best_gt_idx = i
@@ -259,18 +243,12 @@ def main():
                     fp_dict[iou_thresh] += 1
                     results[iou_thresh][pred[4]].append({"conf": pred[5], "tp": 0})
 
-
-
-        # -----------------------------
-        # Optional image saving
-        # -----------------------------
+        # Optional : show the predicted boxes on the image
         if args.show_boxes:
             img_res = draw_detections(img, pred_boxes)
             cv2.imshow("Prediction", img_res)
             cv2.waitKey(0)
-    # -----------------------------
-    # Final metrics
-    # -----------------------------
+
     print("\n================= RESULTS =================")
     # print(f"Total GT : {gt_cls}")
     if args.show_pr: 
@@ -294,10 +272,11 @@ def main():
             print("-" * 70)
         print(" ")
     
+    # Compute AP for each class and mAP for each IoU threshold
     all_aps = {iou: {cls:[] for cls in args.classes} for iou in args.iou_tab}
     all_aps = compute_mAP(results, all_aps, gt_cls, args.classes)
     
-    
+    # Print AP for each class and mAP for each IoU threshold
     for iou in args.iou_tab:
         ap_iou = 0
         for cls in args.classes:
@@ -309,7 +288,6 @@ def main():
         if args.classes != 0: 
             ap_iou = ap_iou / len(args.classes) 
             print(f"mAp @ IoU {iou} : {ap_iou:.4f}")
-    
     print("===========================================\n")
 
 if __name__ == "__main__":
