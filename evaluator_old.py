@@ -60,7 +60,7 @@ def xywnh2xyxyc_pred(label_path, img_w, img_h):
 
     return boxes
 
-def compute_iou(boxA, boxB, img):
+def compute_iou(boxA, boxB):
     """
     boxA, boxB : [x, y, w, h]
     """
@@ -91,7 +91,7 @@ def draw_detections(img, boxes):
 
     return img
 
-def print_pr(tp, fp, gt, total_pred, all_ious, iou):
+def print_res(tp, fp, gt, total_pred, all_ious, iou):
     fn = gt - total_pred
     precision = tp / (tp + fp + 1e-6)
     recall = tp / (tp + fn + 1e-6)
@@ -103,6 +103,28 @@ def print_pr(tp, fp, gt, total_pred, all_ious, iou):
     print(f"Precision : {precision}")
     print(f"Recall : {recall}")
     print(f"Mean iou : {mean_iou}")
+
+def compute_precision_recall_old(results, iou, total_gt):
+    tp_add = []
+    fp_add = []
+    fp_count = 0
+    tp_count  =0
+    results.sort(key=lambda x: x["conf"], reverse=True)    # sort of prediction by confidence score 
+    for result in results:
+        if result["tp"] == 1:
+            tp_count +=1
+        else:
+            fp_count +=1
+        tp_add.append(tp_count)
+        fp_add.append(fp_count)
+    
+    tp_add = np.array(tp_add)
+    fp_add = np.array(fp_add)
+
+    recall = tp_add / total_gt
+    precision = tp_add / (tp_add+fp_add + 1e-6)
+    
+    return results, recall, precision
 
 def compute_precision_recall(preds, total_gt):
     tp_add = []
@@ -121,11 +143,48 @@ def compute_precision_recall(preds, total_gt):
     tp_add = np.array(tp_add)
     fp_add = np.array(fp_add)
 
-    recall = tp_add / total_gt
+    recall = tp_add / 85
     precision = tp_add / (tp_add+fp_add + 1e-6)
     
     return recall, precision
 
+def plot_pr_curves(results, total_gt):
+    """
+    """
+    plt.figure(figsize=(10, 7))
+    
+    for iou, preds in results.items():
+        # On utilise ta fonction pour récupérer les points
+        recalls, precisions = compute_precision_recall(preds, total_gt)
+        
+        # On ajoute (0, 1) et (1, 0) pour que la courbe soit bien cadrée
+        recalls = np.concatenate(([0.0], recalls, [1.0]))
+        precisions = np.concatenate(([1.0], precisions, [0.0]))
+        
+        # Lissage (interpolation) pour le look "standard"
+        precisions = np.maximum.accumulate(precisions[::-1])[::-1]
+
+        recalls = np.array(recalls)
+        precisions = np.array(precisions)
+
+        indices = np.argsort(recalls)
+        recalls = recalls[indices]
+        precisions = precisions[indices]
+        for i in range(len(precisions) - 2, -1, -1):
+            precisions[i] = max(precisions[i], precisions[i + 1])
+        
+        plt.plot(recalls, precisions, label=f'IoU {iou}')
+        # plt.fill_between(recalls, precisions, alpha=0.1) # Optionnel pour voir l'aire
+
+
+    plt.xlabel('Recall (Rappel)')
+    plt.ylabel('Precision (Précision)')
+    plt.title('Courbe Precision-Recall par seuil IoU')
+    plt.xlim([0, 1.0])
+    plt.ylim([0, 1.05])
+    plt.legend()
+    plt.grid(True)
+    plt.show() # Ou plt.savefig("ma_courbe.png")
 
 def ap(recalls, precisions):
     """
@@ -146,51 +205,48 @@ def ap(recalls, precisions):
     
     return ap
 
-def compute_mAP(results, all_aps, total_gt, classes):
+def compute_mAP(results, total_gt):
+    all_aps = []
     for iou, preds in results.items():
-        for cls in classes:
-            rs, ps = compute_precision_recall(preds[cls], total_gt[cls])
-            if len(rs) ==0 or np.all(ps == 0):
-                r = np.array([0.0, 1.0])
-                p = np.array([0.0, 0.0])
-                current_ap = 0.0                
-            else:
-                # Add (0, 1) and (1, 0) to ensure the curve is well framed (square)
-                r = np.concatenate(([0.0], rs, [1.0]))
-                p = np.concatenate(([1.0], ps, [0.0]))
-                # Smoothing (interpolation) for the "standard" look (monotone decreasing precision, escalier step) 
-                p = np.maximum.accumulate(p[::-1])[::-1] # [::-1] reverse the array, np.maximum.accumulate computes the cumulative maximum, then we reverse back to get the interpolated precision values
-                r = np.array(r)
-                p = np.array(p)
-                indices = np.argsort(r) # sort by recall to ensure the curve is well formed (increasing recall)
-                r = r[indices]
-                p = p[indices]
+        r, p = compute_precision_recall(preds, total_gt)
 
-                # 3. Calcul de l'AP pour cet IoU précis
+        # On ajoute (0, 1) et (1, 0) pour que la courbe soit bien cadrée
+        r = np.concatenate(([0.0], r, [1.0]))
+        p = np.concatenate(([1.0], p, [0.0]))
+        
+        # Lissage (interpolation) pour le look "standard"
+        p = np.maximum.accumulate(p[::-1])[::-1]
 
-                current_ap = ap(r, p)
-            all_aps[iou][cls].append(current_ap)
-            plt.plot(r, p, label=f'Cls {cls}, AP {current_ap:.4f}')
-        plt.xlabel('Recall (Rappel)')
-        plt.ylabel('Precision (Précision)')
-        plt.title(f"Courbe Precision-Recall @ IoU : {iou}")
-        plt.xlim([0, 1.0])
-        plt.ylim([0, 1.05])
-        plt.legend()
-        plt.grid(True)
-        plt.show()
-    return all_aps
+        r = np.array(r)
+        p = np.array(p)
+
+        indices = np.argsort(r)
+        r = r[indices]
+        p = p[indices]
+
+        # 3. Calcul de l'AP pour cet IoU précis
+        current_ap = ap(r, p)
+        all_aps.append(current_ap)
+
+        print(f"AP à IoU {iou}: {current_ap:.4f}")
+
+    # 4. Le mAP final
+    mAP = np.mean(all_aps)
+    print(f"\n--- mAP Global: {mAP:.4f} ---")
+
 
 def main():
     print("Loading ...")
     parser = argparse.ArgumentParser(description="Evaluation pipeline : IoU, mAP and F1-score")
     parser.add_argument("--dataset-test", type=str, default=PATH_DATA_TEST, help="Path to the dataset_test_2.0. by default")
+    parser.add_argument("--model-name", type=str, required=True, help="Name of the model under evaluation")
     parser.add_argument("--pred-format", type=str, default="xywhn")
     parser.add_argument("--path-pred", type = str, required=True, help="Path to the predictions of the model")
     parser.add_argument("--conf-thresh", type=float, default=0.5)
     parser.add_argument("--iou-tab", default=[0.25, 0.5, 0.75], type=float, nargs="+", help="Tab of iou threshold to compute AP and mAP")
     parser.add_argument("--classes", default=[0, 1, 2, 3, 4,], type=int, nargs="+", help="Classes name of the predictions. SHould be integer"  )
     parser.add_argument("--show-boxes", type=bool, default=False)
+    parser.add_argument("--show-PRC", type=bool, default=False) 
     parser.add_argument("--show-pr", default=False, type=bool)
 
     args = parser.parse_args()
@@ -202,13 +258,12 @@ def main():
 
     pred_format = args.pred_format
 
-    total_pred = 0
     total_gt = 0
-    gt_cls = {cls: 0 for cls in args.classes}
+    total_pred = 0
     all_ious = {iou: [] for iou in args.iou_tab}
     tp_dict = {iou: 0 for iou in args.iou_tab}
     fp_dict = {iou: 0 for iou in args.iou_tab}
-    results = {iou: {cls: [] for cls in args.classes} for iou in args.iou_tab}
+    results = {iou: [] for iou in args.iou_tab}
 
 
 
@@ -229,10 +284,7 @@ def main():
             pred_boxes.sort(key=lambda x: x[5], reverse=True)    # sort of prediction by confidence score 
 
         gt_boxes = xywnh2xyxyc_gt(gt_path, img_w, img_h)
-
-        for gt in gt_boxes:
-            gt_cls[gt[4]] += 1
-            total_gt +=1
+        total_gt += len(gt_boxes)
 
         matched_gt = {iou : set() for iou in args.iou_tab}
 
@@ -249,9 +301,7 @@ def main():
                 if pred[4] != gt[4]:  # class mismatch
                     continue
 
-                iou = compute_iou(pred[:4], gt[:4], img)
-                
-
+                iou = compute_iou(pred[:4], gt[:4])
                 if iou > best_iou:
                     best_iou = iou
                     best_gt_idx = i
@@ -261,10 +311,10 @@ def main():
                     tp_dict[iou_thresh] += 1
                     all_ious[iou_thresh].append(best_iou)
                     matched_gt[iou_thresh].add(best_gt_idx)
-                    results[iou_thresh][pred[4]].append({"conf": pred[5], "tp": 1})
+                    results[iou_thresh].append({"conf": pred[5], "tp": 1})
                 else:
                     fp_dict[iou_thresh] += 1
-                    results[iou_thresh][pred[4]].append({"conf": pred[5], "tp": 0})
+                    results[iou_thresh].append({"conf": pred[5], "tp": 0})
 
 
 
@@ -275,49 +325,22 @@ def main():
             img_res = draw_detections(img, pred_boxes)
             cv2.imshow("Prediction", img_res)
             cv2.waitKey(0)
+        
+        
+    
     # -----------------------------
     # Final metrics
     # -----------------------------
-    print("\n================= RESULTS =================")
-    # print(f"Total GT : {gt_cls}")
     if args.show_pr: 
-        print("-" * 70)
-        print(f"{'IoU':<6} | {'TP':<5} | {'FP':<5} | {'FN':<5} | {'Prec.':<8} | {'Rec.':<8} | {'mIoU':<8}")
-        print("-" * 70)
+        print("\n================= RESULTS =================")
+        print(f"Total GT : {total_gt}")
         for iou in args.iou_tab:
-            tp = tp_dict[iou]
-            fp = fp_dict[iou]
-            fn = total_gt - tp
-            prec = tp / (tp + fp) if (tp + fp) > 0 else 0
-            rec = tp / total_gt if total_gt > 0 else 0
-            val_miou = all_ious[iou]
-            if isinstance(val_miou, list) and len(val_miou) > 0:
-                miou_display = np.mean(val_miou)
-            elif isinstance(val_miou, (int, float, np.float64)):
-                miou_display = val_miou
-            else:
-                miou_display = 0.0
-            print(f"{iou:<6} | {tp:<5} | {fp:<5} | {fn:<5} | {prec:<8.4f} | {rec:<8.4f} | {miou_display:<8.4f}")
-            print("-" * 70)
-        print(" ")
+            print_res(tp_dict[iou], fp_dict[iou], total_gt, total_pred, all_ious[iou], iou)
+        print("===========================================\n")  
     
-    all_aps = {iou: {cls:[] for cls in args.classes} for iou in args.iou_tab}
-    all_aps = compute_mAP(results, all_aps, gt_cls, args.classes)
-    
-    
-    for iou in args.iou_tab:
-        ap_iou = 0
-        for cls in args.classes:
-            ap_val = all_aps[iou][cls]
-            if isinstance(ap_val, (list, np.ndarray)) and len(ap_val) > 0:
-                ap_val = ap_val[0]
-                ap_iou += ap_val
-            print(f"AP for classe {cls} @ IoU {iou} : {ap_val:.4f}")
-        if args.classes != 0: 
-            ap_iou = ap_iou / len(args.classes) 
-            print(f"mAp @ IoU {iou} : {ap_iou:.4f}")
-    
-    print("===========================================\n")
+    compute_mAP(results, total_gt)
+    if args.show_PRC:
+        plot_pr_curves(results, total_gt)
 
 if __name__ == "__main__":
     main()
