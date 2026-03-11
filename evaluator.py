@@ -80,18 +80,49 @@ def draw_detections(img, boxes):
         cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color=(0, 255, 0), thickness=2)
     return img
 
-def print_pr(tp, fp, gt, total_pred, all_ious, iou):
-    fn = gt - total_pred
-    precision = tp / (tp + fp + 1e-6)
-    recall = tp / (tp + fn + 1e-6)
-    mean_iou = np.mean(all_ious) if len(all_ious) > 0 else 0.0
-    print(f"# For iou : {iou} #")
-    print(f"TP : {tp}")
-    print(f"FP : {fp}")
-    print(f"FN : {fn}")
-    print(f"Precision : {precision}")
-    print(f"Recall : {recall}")
-    print(f"Mean iou : {mean_iou}")
+def print_pr(tp_dict, fp_dict, total_gt, all_ious, iou_tab):
+    print("-" * 70)
+    print(f"{'IoU':<6} | {'TP':<5} | {'FP':<5} | {'FN':<5} | {'Prec.':<8} | {'Rec.':<8} | {'mIoU':<8}")
+    print("-" * 70)
+    for iou in iou_tab:
+        tp = tp_dict[iou]
+        fp = fp_dict[iou]
+        fn = total_gt - tp
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0
+        rec = tp / total_gt if total_gt > 0 else 0
+        val_miou = all_ious[iou]
+        if isinstance(val_miou, list) and len(val_miou) > 0:
+            miou_display = np.mean(val_miou)
+        elif isinstance(val_miou, (int, float, np.float64)):
+            miou_display = val_miou
+        else:
+            miou_display = 0.0
+        print(f"{iou:<6} | {tp:<5} | {fp:<5} | {fn:<5} | {prec:<8.4f} | {rec:<8.4f} | {miou_display:<8.4f}")
+        print("-" * 70)
+    print(" ")
+
+def print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, classes, iou_tab):
+    print("-"*70)
+    print(f"{'IoU':<6} | {'mAP':<10} | {'F1 (Macro)':<15} | {'F1 (Pondéré)':<15}")
+    print("-" * 70)
+    for iou in iou_tab:
+        ap_iou = 0
+        f1_macro = 0
+        f1_pond = 0
+        for cls in classes:
+            ap_val = all_aps[iou][cls]
+            f1_val = f1_cls[iou][cls]
+            f1_macro += f1_val
+            f1_pond += f1_val * gt_cls[cls]
+            if isinstance(ap_val, (list, np.ndarray)) and len(ap_val) > 0:
+                ap_iou += ap_val[0]
+            # print(f"AP for classe {cls} @ IoU {iou} : {ap_val:.4f}")
+        if classes != 0: 
+            ap_iou /= len(classes) 
+            f1_macro /= len(classes)
+            f1_pond /=  total_gt
+            print(f"{iou:<6} | {ap_iou:<10.4f} | {f1_macro:<15.4f} | {f1_pond:<15.4f}")
+            print("-"*70)
 
 def compute_precision_recall(preds, total_gt):
     tp_add = []
@@ -128,7 +159,8 @@ def ap(recalls, precisions):
     
     return ap
 
-def compute_mAP(results, all_aps, total_gt, classes):
+def compute_mAP(results, total_gt, classes, iou_tab):
+    all_aps = {iou: {cls:[] for cls in classes} for iou in iou_tab}
     for iou, preds in results.items():
         for cls in classes:
             rs, ps = compute_precision_recall(preds[cls], total_gt[cls])
@@ -161,6 +193,27 @@ def compute_mAP(results, all_aps, total_gt, classes):
         plt.show()
     return all_aps
 
+def compute_f1(results, gt_cls, classes, iou_tab):
+    f1 = {iou: {cls: 0 for cls in classes} for iou in iou_tab}
+    for iou, preds in results.items():
+        for cls in classes:
+            total_pred = 0
+            fp = 0
+            tp = 0
+            for pred in results[iou][cls]:
+                total_pred +=1 
+                if pred['tp'] == 1: tp +=1  
+                else : fp += 1
+
+            fn = gt_cls[cls] - total_pred
+            precision = tp / (tp + fp + 1e-6)
+            recall = tp / (tp + fn + 1e-6)
+            f1[iou][cls] = 2 * recall * precision / (recall + precision + 1e-6)
+            # print(f"F1-score for iou {iou} and classe {cls} : {f1[iou][cls]}")
+    return f1
+
+
+
 def main():
     print("Loading ...")
     parser = argparse.ArgumentParser(description="Evaluation pipeline : IoU, mAP and F1-score")
@@ -171,7 +224,6 @@ def main():
     parser.add_argument("--iou-tab", default=[0.25, 0.5, 0.75], type=float, nargs="+", help="Tab of iou threshold to compute AP and mAP")
     parser.add_argument("--classes", default=[0, 1, 2, 3, 4,], type=int, nargs="+", help="Classes name of the predictions. SHould be integer"  )
     parser.add_argument("--show-boxes", type=bool, default=False)
-    parser.add_argument("--show-pr", default=False, type=bool)
 
     args = parser.parse_args()
 
@@ -248,47 +300,19 @@ def main():
             img_res = draw_detections(img, pred_boxes)
             cv2.imshow("Prediction", img_res)
             cv2.waitKey(0)
-
-    print("\n================= RESULTS =================")
-    # print(f"Total GT : {gt_cls}")
-    if args.show_pr: 
-        print("-" * 70)
-        print(f"{'IoU':<6} | {'TP':<5} | {'FP':<5} | {'FN':<5} | {'Prec.':<8} | {'Rec.':<8} | {'mIoU':<8}")
-        print("-" * 70)
-        for iou in args.iou_tab:
-            tp = tp_dict[iou]
-            fp = fp_dict[iou]
-            fn = total_gt - tp
-            prec = tp / (tp + fp) if (tp + fp) > 0 else 0
-            rec = tp / total_gt if total_gt > 0 else 0
-            val_miou = all_ious[iou]
-            if isinstance(val_miou, list) and len(val_miou) > 0:
-                miou_display = np.mean(val_miou)
-            elif isinstance(val_miou, (int, float, np.float64)):
-                miou_display = val_miou
-            else:
-                miou_display = 0.0
-            print(f"{iou:<6} | {tp:<5} | {fp:<5} | {fn:<5} | {prec:<8.4f} | {rec:<8.4f} | {miou_display:<8.4f}")
-            print("-" * 70)
-        print(" ")
     
     # Compute AP for each class and mAP for each IoU threshold
-    all_aps = {iou: {cls:[] for cls in args.classes} for iou in args.iou_tab}
-    all_aps = compute_mAP(results, all_aps, gt_cls, args.classes)
-    
-    # Print AP for each class and mAP for each IoU threshold
-    for iou in args.iou_tab:
-        ap_iou = 0
-        for cls in args.classes:
-            ap_val = all_aps[iou][cls]
-            if isinstance(ap_val, (list, np.ndarray)) and len(ap_val) > 0:
-                ap_val = ap_val[0]
-                ap_iou += ap_val
-            print(f"AP for classe {cls} @ IoU {iou} : {ap_val:.4f}")
-        if args.classes != 0: 
-            ap_iou = ap_iou / len(args.classes) 
-            print(f"mAp @ IoU {iou} : {ap_iou:.4f}")
-    print("===========================================\n")
+    all_aps = compute_mAP(results, gt_cls, args.classes, args.iou_tab)
+    f1_cls = compute_f1(results, gt_cls, args.classes, args.iou_tab)
+
+    print("\n================= RESULTS =================")
+    print_pr(tp_dict, fp_dict, total_gt, all_ious, args.iou_tab)
+    print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, args.classes, args.iou_tab)
+
+
+
+
 
 if __name__ == "__main__":
     main()
+ 
