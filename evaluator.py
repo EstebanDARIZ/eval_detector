@@ -129,19 +129,12 @@ def compute_precision_recall(preds, total_gt):
 
 def ap(recalls, precisions):
     """
-    Calcule l'AP à partir de listes de Rappel et Précision (déjà interpolées).
+    Compute Average Precision (AP) using the trapezoidal rule.
+    This function assumes that recalls and precisions are sorted by recall in ascending order.
     """
-    # 1. On s'assure d'avoir les bornes (0,0) au début du Rappel si nécessaire
-    # Le rappel doit commencer à 0 pour bien calculer la première largeur
     mrec = np.concatenate(([0.0], recalls))
     mpre = np.concatenate(([precisions[0]], precisions))
-
-    # 2. On calcule les "largeurs" des rectangles (différences entre rappels successifs)
-    # np.diff([0.0, 0.1, 0.3]) -> [0.1, 0.2]
     widths = np.diff(mrec)
-
-    # 3. L'AP est la somme des surfaces (Largeur * Hauteur)
-    # On multiplie chaque largeur par la précision correspondante
     ap = np.sum(widths * mpre[1:])
     
     return ap
