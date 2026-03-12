@@ -310,9 +310,6 @@ def main():
     print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, args.classes, args.iou_tab)
 
 
-
-
-
 if __name__ == "__main__":
     main()
  
