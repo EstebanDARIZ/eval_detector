@@ -1,1 +1,1 @@
-PATH_DATA_TEST = "/home/esteban-dreau-darizcuren/doctorat/dataset/dataset_test_2.0"
+PATH_DATA_TEST = "/home/esteban-dreau-darizcuren/doctorat/dataset/datasets_test/dataset_test_3.0"

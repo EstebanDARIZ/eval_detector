@@ -9,9 +9,9 @@ from config import PATH_DATA_TEST
 
 """
 How to use : 
-python evaluator.py --model-name EfficientDet --path-pred /home/esteban-dreau-darizcuren/doctorat/code/detector/sam3/output/dataset_test_2.0_pred
+python evaluator.py --path-pred /home/esteban-dreau-darizcuren/doctorat/code/detector/sam3/output/dataset_test_2.0_pred --show-curves False
 
-python evaluator.py --model-name EfficientDet --path-pred /home/esteban-dreau-darizcuren/doctorat/code/detector/sam3/output/dataset_test_2.0_pred --iou-tab .1 .2 .3 .4 .5 .6 .7 .8 .9
+python evaluator.py  --path-pred /home/esteban-dreau-darizcuren/doctorat/code/detector/sam3/output/test_2 --iou-tab .1 .2 .3 .4 .5 .6 .7 .8 .9
 """
 
 def xywnh2xyxyc_gt(label_path, img_w, img_h):
@@ -80,49 +80,62 @@ def draw_detections(img, boxes):
         cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color=(0, 255, 0), thickness=2)
     return img
 
-def print_pr(tp_dict, fp_dict, total_gt, all_ious, iou_tab):
+def print_pr(tp_dict, fp_dict, total_gt, all_ious, iou_tab, save_res_path=False):
     print("-" * 70)
     print(f"{'IoU':<6} | {'TP':<5} | {'FP':<5} | {'FN':<5} | {'Prec.':<8} | {'Rec.':<8} | {'mIoU':<8}")
     print("-" * 70)
-    for iou in iou_tab:
-        tp = tp_dict[iou]
-        fp = fp_dict[iou]
-        fn = total_gt - tp
-        prec = tp / (tp + fp) if (tp + fp) > 0 else 0
-        rec = tp / total_gt if total_gt > 0 else 0
-        val_miou = all_ious[iou]
-        if isinstance(val_miou, list) and len(val_miou) > 0:
-            miou_display = np.mean(val_miou)
-        elif isinstance(val_miou, (int, float, np.float64)):
-            miou_display = val_miou
-        else:
-            miou_display = 0.0
-        print(f"{iou:<6} | {tp:<5} | {fp:<5} | {fn:<5} | {prec:<8.4f} | {rec:<8.4f} | {miou_display:<8.4f}")
-        print("-" * 70)
-    print(" ")
+    with open(save_res_path, "a", encoding="utf-8") as f:
+        f.write("-" * 70 + "\n")
+        f.write(f"{'IoU':<6} | {'TP':<5} | {'FP':<5} | {'FN':<5} | {'Prec.':<8} | {'Rec.':<8} | {'mIoU':<8} \n")
+        f.write("-" * 70 + "\n")
 
-def print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, classes, iou_tab):
+        for iou in iou_tab:
+            tp = tp_dict[iou]
+            fp = fp_dict[iou]
+            fn = total_gt - tp
+            prec = tp / (tp + fp) if (tp + fp) > 0 else 0
+            rec = tp / total_gt if total_gt > 0 else 0
+            val_miou = all_ious[iou]
+            if isinstance(val_miou, list) and len(val_miou) > 0:
+                miou_display = np.mean(val_miou)
+            elif isinstance(val_miou, (int, float, np.float64)):
+                miou_display = val_miou
+            else:
+                miou_display = 0.0
+            print(f"{iou:<6} | {tp:<5} | {fp:<5} | {fn:<5} | {prec:<8.4f} | {rec:<8.4f} | {miou_display:<8.4f}")
+            print("-" * 70)
+            f.write(f"{iou:<6} | {tp:<5} | {fp:<5} | {fn:<5} | {prec:<8.4f} | {rec:<8.4f} | {miou_display:<8.4f} \n")
+            f.write("-" * 70 + "\n")
+        print(" ")
+
+def print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, classes, iou_tab, save_res_path):
     print("-"*70)
     print(f"{'IoU':<6} | {'mAP':<10} | {'F1 (Macro)':<15} | {'F1 (Pondéré)':<15}")
     print("-" * 70)
-    for iou in iou_tab:
-        ap_iou = 0
-        f1_macro = 0
-        f1_pond = 0
-        for cls in classes:
-            ap_val = all_aps[iou][cls]
-            f1_val = f1_cls[iou][cls]
-            f1_macro += f1_val
-            f1_pond += f1_val * gt_cls[cls]
-            if isinstance(ap_val, (list, np.ndarray)) and len(ap_val) > 0:
-                ap_iou += ap_val[0]
-            # print(f"AP for classe {cls} @ IoU {iou} : {ap_val:.4f}")
-        if classes != 0: 
-            ap_iou /= len(classes) 
-            f1_macro /= len(classes)
-            f1_pond /=  total_gt
-            print(f"{iou:<6} | {ap_iou:<10.4f} | {f1_macro:<15.4f} | {f1_pond:<15.4f}")
-            print("-"*70)
+    with open(save_res_path, "a", encoding="utf-8") as f:
+        f.write("-" * 70 + "\n")
+        f.write(f"{'IoU':<6} | {'mAP':<10} | {'F1 (Macro)':<15} | {'F1 (Pondéré)':<15} \n")
+        f.write("-" * 70 + "\n")
+        for iou in iou_tab:
+            ap_iou = 0
+            f1_macro = 0
+            f1_pond = 0
+            for cls in classes:
+                ap_val = all_aps[iou][cls]
+                f1_val = f1_cls[iou][cls]
+                f1_macro += f1_val
+                f1_pond += f1_val * gt_cls[cls]
+                if isinstance(ap_val, (list, np.ndarray)) and len(ap_val) > 0:
+                    ap_iou += ap_val[0]
+                # print(f"AP for classe {cls} @ IoU {iou} : {ap_val:.4f}")
+            if classes != 0: 
+                ap_iou /= len(classes) 
+                f1_macro /= len(classes)
+                f1_pond /=  total_gt
+                print(f"{iou:<6} | {ap_iou:<10.4f} | {f1_macro:<15.4f} | {f1_pond:<15.4f}")
+                print("-"*70)
+                f.write(f"{iou:<6} | {ap_iou:<10.4f} | {f1_macro:<15.4f} | {f1_pond:<15.4f} \n")
+                f.write("-"*70 + "\n")
 
 def compute_precision_recall(preds, total_gt):
     tp_add = []
@@ -159,9 +172,10 @@ def ap(recalls, precisions):
     
     return ap
 
-def compute_mAP(results, total_gt, classes, iou_tab):
+def compute_mAP(results, total_gt, classes, iou_tab, show, path_pred_folder):
     all_aps = {iou: {cls:[] for cls in classes} for iou in iou_tab}
     for iou, preds in results.items():
+        plt.figure()
         for cls in classes:
             rs, ps = compute_precision_recall(preds[cls], total_gt[cls])
             if len(rs) ==0 or np.all(ps == 0):
@@ -183,6 +197,7 @@ def compute_mAP(results, total_gt, classes, iou_tab):
 
             all_aps[iou][cls].append(current_ap)
             plt.plot(r, p, label=f'Cls {cls}, AP {current_ap:.4f}')
+        
         plt.xlabel('Recall (Rappel)')
         plt.ylabel('Precision (Précision)')
         plt.title(f"Courbe Precision-Recall @ IoU : {iou}")
@@ -190,7 +205,14 @@ def compute_mAP(results, total_gt, classes, iou_tab):
         plt.ylim([0, 1.05])
         plt.legend()
         plt.grid(True)
-        plt.show()
+        plot_filename = f"PR_curve_iou{iou}.png"
+        plot_path = os.path.join(path_pred_folder, plot_filename)
+        os.makedirs(path_pred_folder, exist_ok=True)
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        print(f"Graphique sauvegardé : {plot_path}")
+        if show:
+            plt.show()
+        plt.close() 
     return all_aps
 
 def compute_f1(results, gt_cls, classes, iou_tab):
@@ -205,12 +227,14 @@ def compute_f1(results, gt_cls, classes, iou_tab):
                 if pred['tp'] == 1: tp +=1  
                 else : fp += 1
 
-            fn = gt_cls[cls] - total_pred
+            fn = gt_cls[cls] - tp
             precision = tp / (tp + fp + 1e-6)
             recall = tp / (tp + fn + 1e-6)
             f1[iou][cls] = 2 * recall * precision / (recall + precision + 1e-6)
+            
             # print(f"F1-score for iou {iou} and classe {cls} : {f1[iou][cls]}")
     return f1
+
 
 
 
@@ -222,8 +246,10 @@ def main():
     parser.add_argument("--path-pred", type = str, required=True, help="Path to the predictions of the model")
     parser.add_argument("--conf-thresh", type=float, default=0.5)
     parser.add_argument("--iou-tab", default=[0.25, 0.5, 0.75], type=float, nargs="+", help="Tab of iou threshold to compute AP and mAP")
-    parser.add_argument("--classes", default=[0, 1, 2, 3, 4,], type=int, nargs="+", help="Classes name of the predictions. SHould be integer"  )
+    parser.add_argument("--classes", default=[0, 1, 2, 3, 4, 5], type=int, nargs="+", help="Classes name of the predictions. SHould be integer"  )
     parser.add_argument("--show-boxes", type=bool, default=False)
+    parser.add_argument("--show-curves", type=bool, default=False)
+    
 
     args = parser.parse_args()
 
@@ -255,6 +281,7 @@ def main():
         img = cv2.imread(os.path.join(path_test_images, img_name))
         img_h, img_w, _ = img.shape
 
+
         ## If pred are in xywhn format 
         if pred_format.lower() == "xywhn":
             pred_boxes = xywnh2xyxyc_pred(pred_path, img_w, img_h)
@@ -262,16 +289,18 @@ def main():
 
         gt_boxes = xywnh2xyxyc_gt(gt_path, img_w, img_h)
 
+
         for gt in gt_boxes:
-            gt_cls[gt[4]] += 1 # count the number of GT for each class to compute AP later
-            total_gt +=1 # count the total number of GT to compute recall later
+            if gt[4] not in args.classes:  # ← AJOUTER CETTE LIGNE
+                continue
+            gt_cls[gt[4]] += 1
+            total_gt += 1
 
         matched_gt = {iou : set() for iou in args.iou_tab} # to keep track of which GT boxes have been matched for each IoU threshold, to avoid multiple matches with the same GT box
 
-        # -----------------------------
-        # Matching predictions ↔ GT
-        # -----------------------------
         for pred in pred_boxes:
+            if pred[4] not in args.classes:
+                continue
             best_iou = 0
             best_gt_idx = -1
             if not pred[5]>= args.conf_thresh:
@@ -286,7 +315,7 @@ def main():
                     best_gt_idx = i
 
             for iou_thresh in args.iou_tab:
-                if best_iou >= iou_thresh and best_gt_idx not in matched_gt[iou_thresh] : 
+                if best_gt_idx >= 0 and best_iou >= iou_thresh and best_gt_idx not in matched_gt[iou_thresh]:
                     tp_dict[iou_thresh] += 1
                     all_ious[iou_thresh].append(best_iou)
                     matched_gt[iou_thresh].add(best_gt_idx)
@@ -302,12 +331,17 @@ def main():
             cv2.waitKey(0)
     
     # Compute AP for each class and mAP for each IoU threshold
-    all_aps = compute_mAP(results, gt_cls, args.classes, args.iou_tab)
+    all_aps = compute_mAP(results, gt_cls, args.classes, args.iou_tab, args.show_curves, path_pred_folder)
     f1_cls = compute_f1(results, gt_cls, args.classes, args.iou_tab)
 
+    
+    path_save_res = os.path.join(path_pred_folder, "results.txt")
+
     print("\n================= RESULTS =================")
-    print_pr(tp_dict, fp_dict, total_gt, all_ious, args.iou_tab)
-    print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, args.classes, args.iou_tab)
+    print_pr(tp_dict, fp_dict, total_gt, all_ious, args.iou_tab, path_save_res)
+    print_mAp_F1(all_aps, f1_cls, gt_cls, total_gt, args.classes, args.iou_tab, path_save_res)
+
+
 
 
 if __name__ == "__main__":
